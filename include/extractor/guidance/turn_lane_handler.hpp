@@ -32,7 +32,7 @@ namespace lanes
 {
 class TurnLaneHandler
 {
-    typedef enum TurnLaneType {
+    typedef enum TurnLaneScenario {
         SIMPLE,             // a straightforward assignment
         PARTITION_LOCAL,    // an assignment that requires partitioning, using local turns
         SIMPLE_PREVIOUS,    // an assignemtnn using the turns specified at the previous road (e.g.
@@ -42,8 +42,10 @@ class TurnLaneHandler
                             // shown again)
         SLIPROAD, // Sliproads are simple assignments that, for better visual representation should
                   // include turns from other roads in their listings
+        NONE,     // not a turn lane scenario at all
+        INVALID,  // some error might have occurred
         UNKNOWN   // UNKNOWN describes all cases that we are currently not able to handle
-    };
+    } TurnLaneScenario;
 
   public:
     typedef std::vector<TurnLaneData> LaneDataVector;
@@ -72,6 +74,14 @@ class TurnLaneHandler
     const std::vector<QueryNode> &node_info_list;
     const TurnAnalysis &turn_analysis;
     LaneDataIdMap &id_map;
+
+    // Find out which scenario we have to handle
+    TurnLaneScenario deduceScenario(const NodeID at,
+                                    const EdgeID via_edge,
+                                    const Intersection &intersection,
+                                    LaneDescriptionID &lane_description_id,
+                                    TurnLaneDescription &turn_lane_description,
+                                    LaneDataVector &lane_data);
 
     // check whether we can handle an intersection
     bool isSimpleIntersection(const LaneDataVector &turn_lane_data,

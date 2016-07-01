@@ -78,60 +78,19 @@ TurnLaneHandler::~TurnLaneHandler()
 Intersection
 TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Intersection intersection)
 {
-    // if only a uturn exists, there is nothing we can do
-    if (intersection.size() == 1)
-        return std::move(intersection);
-
-    const auto &data = node_based_graph.GetEdgeData(via_edge);
-    // Extract a lane description for the ID
-
-    const auto turn_lane_description =
-        data.lane_description_id != INVALID_LANE_DESCRIPTIONID
-            ? TurnLaneDescription(
-                  turn_lane_masks.begin() + turn_lane_offsets[data.lane_description_id],
-                  turn_lane_masks.begin() + turn_lane_offsets[data.lane_description_id + 1])
-            : TurnLaneDescription();
-
-    BOOST_ASSERT(turn_lane_description.empty() ||
-                 turn_lane_description.size() == (turn_lane_offsets[data.lane_description_id + 1] -
-                                                  turn_lane_offsets[data.lane_description_id]));
-
-    // going straight, due to traffic signals, we can have uncompressed geometry
-    if (intersection.size() == 2 &&
-        ((data.lane_description_id != INVALID_LANE_DESCRIPTIONID &&
-          data.lane_description_id ==
-              node_based_graph.GetEdgeData(intersection[1].turn.eid).lane_description_id) ||
-         angularDeviation(intersection[1].turn.angle, STRAIGHT_ANGLE) < FUZZY_ANGLE_DIFFERENCE))
-        return std::move(intersection);
-
-    auto lane_data = laneDataFromDescription(turn_lane_description);
-
-    // if we see an invalid conversion, we stop immediately
-    if (!turn_lane_description.empty() && lane_data.empty())
-        return std::move(intersection);
-
-    // might be reasonable to handle multiple turns, if we know of a sequence of lanes
-    // e.g. one direction per lane, if three lanes and right, through, left available
-    if (!turn_lane_description.empty() && lane_data.size() == 1 &&
-        lane_data[0].tag == TurnLaneType::none)
-        return std::move(intersection);
-
+    TurnLaneDescription turn_lane_description;
+    LaneDescriptionID lane_description_id;
+    LaneDataVector lane_data;
+    const auto scenario = deduceScenario(
+        at, via_edge, intersection, lane_description_id, turn_lane_description, lane_data);
+    switch (scenario)
+    {
+    // cases that all simply return the intersection
+    case TurnLaneScenario::NONE: /*no break*/
+    case TurnLaneScenario::INVALID:
+        return intersection;
+    }
     const std::size_t possible_entries = getNumberOfTurns(intersection);
-
-    // merge does not justify an instruction
-    const bool has_merge_lane =
-        hasTag(TurnLaneType::merge_to_left | TurnLaneType::merge_to_right, lane_data);
-
-    // Dead end streets that don't have any left-tag. This can happen due to the fallbacks for
-    // broken data/barriers.
-    const bool has_non_usable_u_turn = (intersection[0].entry_allowed &&
-                                        !hasTag(TurnLaneType::none | TurnLaneType::left |
-                                                    TurnLaneType::sharp_left | TurnLaneType::uturn,
-                                                lane_data) &&
-                                        lane_data.size() + 1 == possible_entries);
-
-    if (has_merge_lane || has_non_usable_u_turn)
-        return std::move(intersection);
 
     if (!lane_data.empty() && canMatchTrivially(intersection, lane_data) &&
         lane_data.size() !=
@@ -148,8 +107,7 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
     {
         (*count_called)++;
         lane_data = handleNoneValueAtSimpleTurn(std::move(lane_data), intersection);
-        return simpleMatchTuplesToTurns(
-            std::move(intersection), lane_data, data.lane_description_id);
+        return simpleMatchTuplesToTurns(std::move(intersection), lane_data, lane_description_id);
     }
     // if the intersection is not simple but we have lane data, we check for intersections with
     // middle islands. We have two cases. The first one is providing lane data on the current
@@ -171,7 +129,7 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
             {
                 lane_data = handleNoneValueAtSimpleTurn(std::move(lane_data), intersection);
                 return simpleMatchTuplesToTurns(
-                    std::move(intersection), lane_data, data.lane_description_id);
+                    std::move(intersection), lane_data, lane_description_id);
             }
         }
 
@@ -189,6 +147,74 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
     }
 
     return std::move(intersection);
+}
+
+// Find out which scenario we have to handle
+TurnLaneHandler::TurnLaneScenario
+TurnLaneHandler::deduceScenario(const NodeID at,
+                                const EdgeID via_edge,
+                                const Intersection &intersection,
+                                LaneDescriptionID &lane_description_id,
+                                TurnLaneDescription &turn_lane_description,
+                                LaneDataVector &lane_data)
+{
+    // if only a uturn exists, there is nothing we can do
+    if (intersection.size() == 1)
+        return TurnLaneHandler::NONE;
+
+    const auto &data = node_based_graph.GetEdgeData(via_edge);
+    lane_description_id = data.lane_description_id;
+    // Extract a lane description for the ID
+
+    turn_lane_description =
+        lane_description_id != INVALID_LANE_DESCRIPTIONID
+            ? TurnLaneDescription(turn_lane_masks.begin() + turn_lane_offsets[lane_description_id],
+                                  turn_lane_masks.begin() +
+                                      turn_lane_offsets[lane_description_id + 1])
+            : TurnLaneDescription();
+
+    BOOST_ASSERT(turn_lane_description.empty() ||
+                 turn_lane_description.size() == (turn_lane_offsets[lane_description_id + 1] -
+                                                  turn_lane_offsets[lane_description_id]));
+
+    // going straight, due to traffic signals, we can have uncompressed geometry
+    if (intersection.size() == 2 &&
+        ((lane_description_id != INVALID_LANE_DESCRIPTIONID &&
+          lane_description_id ==
+              node_based_graph.GetEdgeData(intersection[1].turn.eid).lane_description_id) ||
+         angularDeviation(intersection[1].turn.angle, STRAIGHT_ANGLE) < FUZZY_ANGLE_DIFFERENCE))
+        return TurnLaneHandler::NONE;
+
+    lane_data = laneDataFromDescription(turn_lane_description);
+
+    // if we see an invalid conversion, we stop immediately
+    if (!turn_lane_description.empty() && lane_data.empty())
+        return TurnLaneScenario::INVALID;
+
+    // might be reasonable to handle multiple turns, if we know of a sequence of lanes
+    // e.g. one direction per lane, if three lanes and right, through, left available
+    if (!turn_lane_description.empty() && lane_data.size() == 1 &&
+        lane_data[0].tag == TurnLaneType::none)
+        return TurnLaneScenario::INVALID;
+
+    const std::size_t possible_entries = getNumberOfTurns(intersection);
+
+    // merge does not justify an instruction
+    const bool has_merge_lane =
+        hasTag(TurnLaneType::merge_to_left | TurnLaneType::merge_to_right, lane_data);
+
+    // Dead end streets that don't have any left-tag. This can happen due to the fallbacks for
+    // broken data/barriers.
+    const bool has_non_usable_u_turn = (intersection[0].entry_allowed &&
+                                        !hasTag(TurnLaneType::none | TurnLaneType::left |
+                                                    TurnLaneType::sharp_left | TurnLaneType::uturn,
+                                                lane_data) &&
+                                        lane_data.size() + 1 == possible_entries);
+
+    if (has_merge_lane || has_non_usable_u_turn)
+        return TurnLaneScenario::INVALID;
+
+    return TurnLaneScenario::UNKNOWN;
 }
 
 // At segregated intersections, turn lanes will often only be specified up until the first turn. To
