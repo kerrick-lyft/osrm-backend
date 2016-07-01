@@ -79,6 +79,7 @@ class TurnLaneHandler
     TurnLaneScenario deduceScenario(const NodeID at,
                                     const EdgeID via_edge,
                                     const Intersection &intersection,
+                                    // Output Parameters to reduce repeated creation
                                     LaneDescriptionID &lane_description_id,
                                     TurnLaneDescription &turn_lane_description,
                                     LaneDataVector &lane_data);
@@ -98,15 +99,28 @@ class TurnLaneHandler
 
     // if the current intersections turn string is empty, we check whether there is an incoming
     // intersection whose turns might be related to this current intersection
-    Intersection handleTurnAtPreviousIntersection(const NodeID at,
-                                                  const EdgeID via_edge,
-                                                  Intersection intersection);
+    Intersection handleTurnAtPreviousIntersection(const NodeID previous_node,
+                                                  const EdgeID previous_id,
+                                                  Intersection intersection,
+                                                  Intersection previous_intersection,
+                                                  LaneDataVector previous_lane_data,
+                                                  const LaneDescriptionID previous_description_id);
 
     // Sliproad turns have a separated lane to the right/left of other depicted lanes. These lanes
     // are not necessarily separated clearly from the rest of the way. As a result, we combine both
     // lane entries for our output, while performing the matching with the separated lanes only.
     Intersection
     handleSliproadTurn(const NodeID at, const EdgeID via_edge, Intersection intersection);
+
+    // Extract Previous Intersection/Turn Lane Data
+    bool findPreviousIntersectionData(const NodeID at,
+                                      const EdgeID via_edge,
+                                      const Intersection &intersection,
+                                      NodeID &previous_node,
+                                      EdgeID &previous_id,
+                                      Intersection &previous_intersection,
+                                      LaneDataVector &previous_lane_data,
+                                      LaneDescriptionID &previous_description_id) const;
 };
 
 } // namespace lanes
