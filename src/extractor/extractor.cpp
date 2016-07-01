@@ -533,7 +533,8 @@ Extractor::BuildEdgeExpandedGraph(lua_State *lua_state,
         profile_properties,
         name_table,
         turn_lane_offsets,
-        turn_lane_masks);
+        turn_lane_masks,
+        turn_lane_map);
 
     edge_based_graph_factory.Run(config.edge_output_path,
                                  config.turn_lane_data_file_name,
