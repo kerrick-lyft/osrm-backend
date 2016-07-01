@@ -81,8 +81,25 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
     TurnLaneDescription turn_lane_description;
     LaneDescriptionID lane_description_id;
     LaneDataVector lane_data;
-    const auto scenario = deduceScenario(
-        at, via_edge, intersection, lane_description_id, turn_lane_description, lane_data);
+
+    // data for the previous intersection
+    NodeID previous_node;
+    EdgeID previous_id;
+    Intersection previous_intersection;
+    LaneDataVector previous_lane_data;
+    LaneDescriptionID previous_description_id;
+
+    const auto scenario = deduceScenario(at,
+                                         via_edge,
+                                         intersection,
+                                         lane_description_id,
+                                         turn_lane_description,
+                                         lane_data,
+                                         previous_node,
+                                         previous_id,
+                                         previous_intersection,
+                                         previous_lane_data,
+                                         previous_description_id);
     switch (scenario)
     {
     // cases that all simply return the intersection
@@ -91,15 +108,6 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
         return intersection;
     }
     const std::size_t possible_entries = getNumberOfTurns(intersection);
-
-    if (!lane_data.empty() && canMatchTrivially(intersection, lane_data) &&
-        lane_data.size() !=
-            static_cast<std::size_t>(
-                lane_data.back().tag != TurnLaneType::uturn && intersection[0].entry_allowed ? 1
-                                                                                             : 0) +
-                possible_entries &&
-        intersection[0].entry_allowed && !hasTag(TurnLaneType::none, lane_data))
-        lane_data.push_back({TurnLaneType::uturn, lane_data.back().to, lane_data.back().to});
 
     bool is_simple = isSimpleIntersection(lane_data, intersection);
     // simple intersections can be assigned directly
@@ -141,21 +149,6 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
     // to the turn. We try to partition the data and only consider the second part.
     else if (turn_lane_description.empty())
     {
-        // acquire the lane data of a previous segment and, if possible, use it for the current
-        // intersection.
-        NodeID previous_node;
-        EdgeID previous_id;
-        Intersection previous_intersection;
-        LaneDataVector previous_lane_data;
-        LaneDescriptionID previous_description_id;
-        findPreviousIntersectionData(at,
-                                     via_edge,
-                                     intersection,
-                                     previous_node,
-                                     previous_id,
-                                     previous_intersection,
-                                     previous_lane_data,
-                                     previous_description_id);
         return handleTurnAtPreviousIntersection(previous_node,
                                                 previous_id,
                                                 std::move(intersection),
@@ -174,7 +167,12 @@ TurnLaneHandler::deduceScenario(const NodeID at,
                                 const Intersection &intersection,
                                 LaneDescriptionID &lane_description_id,
                                 TurnLaneDescription &turn_lane_description,
-                                LaneDataVector &lane_data)
+                                LaneDataVector &lane_data,
+                                NodeID &previous_node,
+                                EdgeID &previous_id,
+                                Intersection &previous_intersection,
+                                LaneDataVector &previous_lane_data,
+                                LaneDescriptionID &previous_description_id)
 {
     // if only a uturn exists, there is nothing we can do
     if (intersection.size() == 1)
@@ -231,6 +229,27 @@ TurnLaneHandler::deduceScenario(const NodeID at,
 
     if (has_merge_lane || has_non_usable_u_turn)
         return TurnLaneScenario::INVALID;
+
+    // Handle possible u-turn scenarios
+    if (!lane_data.empty() && canMatchTrivially(intersection, lane_data) &&
+        lane_data.size() !=
+            static_cast<std::size_t>(
+                lane_data.back().tag != TurnLaneType::uturn && intersection[0].entry_allowed ? 1
+                                                                                             : 0) +
+                possible_entries &&
+        intersection[0].entry_allowed && !hasTag(TurnLaneType::none, lane_data))
+        lane_data.push_back({TurnLaneType::uturn, lane_data.back().to, lane_data.back().to});
+
+    // acquire the lane data of a previous segment and, if possible, use it for the current
+    // intersection.
+    findPreviousIntersectionData(at,
+                                 via_edge,
+                                 intersection,
+                                 previous_node,
+                                 previous_id,
+                                 previous_intersection,
+                                 previous_lane_data,
+                                 previous_description_id);
 
     return TurnLaneScenario::UNKNOWN;
 }
@@ -319,8 +338,8 @@ TurnLaneHandler::handleTurnAtPreviousIntersection(const NodeID previous_node,
             if (previous_lane_data.size() == getNumberOfTurns(intersection) &&
                 isSimpleIntersection(previous_lane_data, intersection))
             {
-                previous_lane_data = handleNoneValueAtSimpleTurn(std::move(previous_lane_data),
-                                                                 intersection);
+                previous_lane_data =
+                    handleNoneValueAtSimpleTurn(std::move(previous_lane_data), intersection);
                 return simpleMatchTuplesToTurns(
                     std::move(intersection), previous_lane_data, previous_description_id);
             }

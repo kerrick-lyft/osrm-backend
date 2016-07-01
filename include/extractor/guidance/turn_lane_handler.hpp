@@ -82,7 +82,12 @@ class TurnLaneHandler
                                     // Output Parameters to reduce repeated creation
                                     LaneDescriptionID &lane_description_id,
                                     TurnLaneDescription &turn_lane_description,
-                                    LaneDataVector &lane_data);
+                                    LaneDataVector &lane_data,
+                                    NodeID &previous_node,
+                                    EdgeID &previous_id,
+                                    Intersection &previous_intersection,
+                                    LaneDataVector &previous_lane_data,
+                                    LaneDescriptionID &previous_description_id);
 
     // check whether we can handle an intersection
     bool isSimpleIntersection(const LaneDataVector &turn_lane_data,
