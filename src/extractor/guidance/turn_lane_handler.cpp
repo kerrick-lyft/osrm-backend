@@ -85,7 +85,7 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
 
     // data for the previous intersection
     NodeID previous_node;
-    EdgeID previous_id;
+    EdgeID previous_via_edge;
     Intersection previous_intersection;
     LaneDataVector previous_lane_data;
     LaneDescriptionID previous_description_id;
@@ -96,7 +96,7 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
                                          lane_description_id,
                                          lane_data,
                                          previous_node,
-                                         previous_id,
+                                         previous_via_edge,
                                          previous_intersection,
                                          previous_lane_data,
                                          previous_description_id);
@@ -127,6 +127,13 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
             handleNoneValueAtSimpleTurn(std::move(previous_lane_data), intersection);
         return simpleMatchTuplesToTurns(
             std::move(intersection), previous_lane_data, previous_description_id);
+    case TurnLaneScenario::SLIPROAD:
+        return handleSliproadTurn(std::move(intersection),
+                                  lane_description_id,
+                                  lane_data,
+                                  previous_intersection,
+                                  previous_description_id,
+                                  previous_lane_data);
     }
     return std::move(intersection);
 }
@@ -136,10 +143,11 @@ TurnLaneHandler::TurnLaneScenario
 TurnLaneHandler::deduceScenario(const NodeID at,
                                 const EdgeID via_edge,
                                 const Intersection &intersection,
+                                // Output Variables
                                 LaneDescriptionID &lane_description_id,
                                 LaneDataVector &lane_data,
                                 NodeID &previous_node,
-                                EdgeID &previous_id,
+                                EdgeID &previous_via_edge,
                                 Intersection &previous_intersection,
                                 LaneDataVector &previous_lane_data,
                                 LaneDescriptionID &previous_description_id)
@@ -150,12 +158,24 @@ TurnLaneHandler::deduceScenario(const NodeID at,
 
     extractLaneData(via_edge, lane_description_id, lane_data);
 
-    // going straight, due to traffic signals, we can have uncompressed geometry
-    if (intersection.size() == 2 &&
-        ((lane_description_id != INVALID_LANE_DESCRIPTIONID &&
-          lane_description_id ==
-              node_based_graph.GetEdgeData(intersection[1].turn.eid).lane_description_id) ||
-         angularDeviation(intersection[1].turn.angle, STRAIGHT_ANGLE) < FUZZY_ANGLE_DIFFERENCE))
+    // traffic lights are not compressed during our preprocessing. Due to this *shortcoming*, we can
+    // get to the following situation:
+    //
+    //         d
+    // a - b - c
+    //         e
+    //
+    // with a traffic light at b and a-b as well as b-c offering the same turn lanes.
+    // In such a situation, we don't need to handle the lanes at a-b, since we will get the same
+    // information at b-c, where the actual turns are taking place.
+    const bool is_going_straight_and_turns_continue =
+        (intersection.size() == 2 &&
+         ((lane_description_id != INVALID_LANE_DESCRIPTIONID &&
+           lane_description_id ==
+               node_based_graph.GetEdgeData(intersection[1].turn.eid).lane_description_id) ||
+          angularDeviation(intersection[1].turn.angle, STRAIGHT_ANGLE) < FUZZY_ANGLE_DIFFERENCE));
+
+    if (is_going_straight_and_turns_continue)
         return TurnLaneHandler::NONE;
 
     // if we see an invalid conversion, we stop immediately
@@ -167,6 +187,28 @@ TurnLaneHandler::deduceScenario(const NodeID at,
     if (lane_description_id != INVALID_LANE_DESCRIPTIONID && lane_data.size() == 1 &&
         lane_data[0].tag == TurnLaneType::none)
         return TurnLaneScenario::INVALID;
+
+    // Due to sliproads, we might need access to the previous intersection at this point already;
+    previous_node = SPECIAL_NODEID;
+    previous_via_edge = SPECIAL_EDGEID;
+    if (findPreviousIntersection(at,
+                                 via_edge,
+                                 intersection,
+                                 turn_analysis,
+                                 node_based_graph,
+                                 previous_node,
+                                 previous_via_edge,
+                                 previous_intersection))
+    {
+        for (const auto &road : previous_intersection)
+        {
+            if (road.turn.instruction.type == TurnType::Sliproad && road.turn.eid == via_edge)
+            {
+                std::cout << "Found sliproad at previous" << std::endl;
+                return TurnLaneScenario::SLIPROAD;
+            }
+        }
+    }
 
     const std::size_t possible_entries = getNumberOfTurns(intersection);
 
@@ -202,10 +244,23 @@ TurnLaneHandler::deduceScenario(const NodeID at,
     if (is_simple)
         return TurnLaneScenario::SIMPLE;
 
-    // if the intersection is not simple but we have lane data, we check for intersections with
-    // middle islands. We have two cases. The first one is providing lane data on the current
-    // segment and we only need to consider the part of the current segment. In this case we
-    // partition the data and only consider the first part.
+    // In case of intersections that don't offer all turns right away, we have to account for
+    // *delayed* turns. Consider the following example:
+    //
+    //         e
+    // a - b - c - f
+    //     d
+    //
+    // With lanes on a-b indicating: | left | through | right |.
+    // While right obviously refers to a-b-d, through and left refer to a-b-c-f and a-b-c-e
+    // respectively. While we are at a-b, we have to consider the right turn only.
+    // The turn a-b-c gets assigned the lanes of both *left* and *through*.
+    // At b-c, we get access to either a new set of lanes, or -- via the previous intersection -- to
+    // the second part of | left | through | right |. Lane anticipation can then deduce which lanes
+    // correspond to what and suppress unnecessary instructions.
+    //
+    // For our initial case, we consider only the turns that are available at the current location,
+    // which are given by partitioning the lane data and selecting the first part.
     if (!lane_data.empty())
     {
         if (lane_data.size() >= possible_entries)
@@ -221,44 +276,30 @@ TurnLaneHandler::deduceScenario(const NodeID at,
                 return TurnLaneScenario::PARTITION_LOCAL;
         }
         // If partitioning doesn't solve the problem, we don't know how to handle it right now
-        std::cout << "Current Not Empty" << std::endl;
         return TurnLaneScenario::UNKNOWN;
     }
 
     if (lane_description_id != INVALID_LANE_DESCRIPTIONID)
         return TurnLaneScenario::UNKNOWN;
 
-    std::cout << "Checking Previous Intersection" << std::endl;
-
     // acquire the lane data of a previous segment and, if possible, use it for the current
     // intersection.
-    previous_node = SPECIAL_NODEID;
-    previous_id = SPECIAL_EDGEID;
-    if (findPreviousIntersection(at,
-                                  via_edge,
-                                  intersection,
-                                  turn_analysis,
-                                  node_based_graph,
-                                  previous_node,
-                                  previous_id,
-                                  previous_intersection))
-        extractLaneData(previous_id,previous_description_id,previous_lane_data);
+    if (previous_via_edge != SPECIAL_EDGEID)
+        extractLaneData(previous_via_edge, previous_description_id, previous_lane_data);
     else
         return TurnLaneScenario::NONE;
 
     if (previous_lane_data.empty())
         return TurnLaneScenario::NONE;
 
-    // to be able to check for simple turns, we need to assign the turn types now
-         previous_intersection = turn_analysis.assignTurnTypes(
-            previous_node, previous_id, std::move(previous_intersection));
     const auto is_simple_previous = isSimpleIntersection(previous_lane_data, intersection);
     if (is_simple_previous)
         return TurnLaneScenario::SIMPLE_PREVIOUS;
 
+    // This is the second part of the previously described partitioning scenario.
     if (previous_lane_data.size() >= possible_entries && previous_intersection.size() != 2)
     {
-        previous_lane_data = partitionLaneData(node_based_graph.GetTarget(previous_id),
+        previous_lane_data = partitionLaneData(node_based_graph.GetTarget(previous_via_edge),
                                                std::move(previous_lane_data),
                                                previous_intersection)
                                  .second;
@@ -574,6 +615,17 @@ Intersection TurnLaneHandler::simpleMatchTuplesToTurns(Intersection intersection
 
     return triviallyMatchLanesToTurns(
         std::move(intersection), lane_data, node_based_graph, lane_description_id, id_map);
+}
+
+Intersection
+TurnLaneHandler::handleSliproadTurn(Intersection intersection,
+                                    const LaneDescriptionID lane_description_id,
+                                    const LaneDataVector &lane_data,
+                                    const Intersection &previous_intersection,
+                                    const LaneDescriptionID &previous_lane_description_id,
+                                    const LaneDataVector &previous_lane_data) const
+{
+    return intersection;
 }
 
 } // namespace lanes

@@ -1,5 +1,5 @@
-#include "extractor/guidance/turn_discovery.hpp"
 #include "extractor/guidance/constants.hpp"
+#include "extractor/guidance/turn_discovery.hpp"
 
 namespace osrm
 {
@@ -66,12 +66,25 @@ bool findPreviousIntersection(const NodeID node_v,
     // if the edge is not traversable, we obviously don't have a previous intersection or couldn't
     // find it.
     if (node_based_graph.GetEdgeData(result_via_edge).reversed)
+    {
+        result_via_edge = SPECIAL_EDGEID;
+        result_node = SPECIAL_NODEID;
         return false;
+    }
 
     result_intersection = turn_analysis.getIntersection(node_u, result_via_edge);
-    const auto check_via_edge = findClosestTurn(result_intersection, STRAIGHT_ANGLE)->turn.eid;
-    if (check_via_edge != via_edge)
+    const auto check_via_edge =
+        result_intersection.end() !=
+        std::find_if(result_intersection.begin(),
+                     result_intersection.end(),
+                     [via_edge](const ConnectedRoad &road) { return road.turn.eid == via_edge; });
+
+    if (!check_via_edge)
+    {
+        result_via_edge = SPECIAL_EDGEID;
+        result_node = SPECIAL_NODEID;
         return false;
+    }
 
     result_intersection =
         turn_analysis.assignTurnTypes(node_u, result_via_edge, std::move(result_intersection));

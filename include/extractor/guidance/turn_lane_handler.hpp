@@ -115,8 +115,12 @@ class TurnLaneHandler
     // Sliproad turns have a separated lane to the right/left of other depicted lanes. These lanes
     // are not necessarily separated clearly from the rest of the way. As a result, we combine both
     // lane entries for our output, while performing the matching with the separated lanes only.
-    Intersection
-    handleSliproadTurn(const NodeID at, const EdgeID via_edge, Intersection intersection);
+    Intersection handleSliproadTurn(Intersection intersection,
+                                    const LaneDescriptionID lane_description_id,
+                                    const LaneDataVector &lane_data,
+                                    const Intersection &previous_intersection,
+                                    const LaneDescriptionID &previous_lane_description_id,
+                                    const LaneDataVector &previous_lane_data) const;
 
     // get the lane data for an intersection
     void extractLaneData(const EdgeID via_edge,
