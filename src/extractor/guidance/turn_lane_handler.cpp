@@ -229,20 +229,29 @@ TurnLaneHandler::deduceScenario(const NodeID at,
         return TurnLaneScenario::UNKNOWN;
 
     std::cout << "Checking Previous Intersection" << std::endl;
+
     // acquire the lane data of a previous segment and, if possible, use it for the current
     // intersection.
-    findPreviousIntersectionData(at,
-                                 via_edge,
-                                 intersection,
-                                 previous_node,
-                                 previous_id,
-                                 previous_intersection,
-                                 previous_lane_data,
-                                 previous_description_id);
+    previous_node = SPECIAL_NODEID;
+    previous_id = SPECIAL_EDGEID;
+    if (findPreviousIntersection(at,
+                                  via_edge,
+                                  intersection,
+                                  turn_analysis,
+                                  node_based_graph,
+                                  previous_node,
+                                  previous_id,
+                                  previous_intersection))
+        extractLaneData(previous_id,previous_description_id,previous_lane_data);
+    else
+        return TurnLaneScenario::NONE;
 
     if (previous_lane_data.empty())
         return TurnLaneScenario::NONE;
 
+    // to be able to check for simple turns, we need to assign the turn types now
+         previous_intersection = turn_analysis.assignTurnTypes(
+            previous_node, previous_id, std::move(previous_intersection));
     const auto is_simple_previous = isSimpleIntersection(previous_lane_data, intersection);
     if (is_simple_previous)
         return TurnLaneScenario::SIMPLE_PREVIOUS;
@@ -285,50 +294,6 @@ void TurnLaneHandler::extractLaneData(const EdgeID via_edge,
     BOOST_ASSERT(lane_description.empty() ||
                  lane_description.size() == (turn_lane_offsets[lane_description_id + 1] -
                                              turn_lane_offsets[lane_description_id]));
-}
-
-bool TurnLaneHandler::findPreviousIntersectionData(const NodeID at,
-                                                   const EdgeID via_edge,
-                                                   const Intersection &intersection,
-                                                   NodeID &previous_node,
-                                                   EdgeID &previous_id,
-                                                   Intersection &previous_intersection,
-                                                   LaneDataVector &previous_lane_data,
-                                                   LaneDescriptionID &previous_description_id) const
-{
-    previous_node = SPECIAL_NODEID;
-    previous_id = SPECIAL_EDGEID;
-
-    if (!findPreviousIntersection(at,
-                                  via_edge,
-                                  intersection,
-                                  turn_analysis,
-                                  node_based_graph,
-                                  previous_node,
-                                  previous_id,
-                                  previous_intersection))
-        return false;
-
-    BOOST_ASSERT(previous_id != SPECIAL_EDGEID);
-
-    const auto &previous_edge_data = node_based_graph.GetEdgeData(previous_id);
-    // TODO access correct data
-    previous_description_id = previous_edge_data.lane_description_id;
-    const auto previous_description =
-        previous_id != INVALID_LANE_DESCRIPTIONID
-            ? TurnLaneDescription(
-                  turn_lane_masks.begin() + turn_lane_offsets[previous_description_id],
-                  turn_lane_masks.begin() + turn_lane_offsets[previous_description_id + 1])
-            : TurnLaneDescription();
-
-    if (!previous_description.empty())
-    {
-        previous_intersection = turn_analysis.assignTurnTypes(
-            previous_node, previous_id, std::move(previous_intersection));
-
-        previous_lane_data = laneDataFromDescription(previous_description);
-    }
-    return true;
 }
 
 /* A simple intersection does not depend on the next intersection coming up. This is important

@@ -122,16 +122,6 @@ class TurnLaneHandler
     void extractLaneData(const EdgeID via_edge,
                          LaneDescriptionID &lane_description_id,
                          LaneDataVector &lane_data) const;
-
-    // Extract Previous Intersection/Turn Lane Data
-    bool findPreviousIntersectionData(const NodeID at,
-                                      const EdgeID via_edge,
-                                      const Intersection &intersection,
-                                      NodeID &previous_node,
-                                      EdgeID &previous_id,
-                                      Intersection &previous_intersection,
-                                      LaneDataVector &previous_lane_data,
-                                      LaneDescriptionID &previous_description_id) const;
 };
 
 } // namespace lanes
