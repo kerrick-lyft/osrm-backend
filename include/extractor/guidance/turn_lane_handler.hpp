@@ -92,7 +92,6 @@ class TurnLaneHandler
                                     const Intersection &intersection,
                                     // Output Parameters to reduce repeated creation
                                     LaneDescriptionID &lane_description_id,
-                                    TurnLaneDescription &turn_lane_description,
                                     LaneDataVector &lane_data,
                                     NodeID &previous_node,
                                     EdgeID &previous_id,
@@ -118,6 +117,11 @@ class TurnLaneHandler
     // lane entries for our output, while performing the matching with the separated lanes only.
     Intersection
     handleSliproadTurn(const NodeID at, const EdgeID via_edge, Intersection intersection);
+
+    // get the lane data for an intersection
+    void extractLaneData(const EdgeID via_edge,
+                         LaneDescriptionID &lane_description_id,
+                         LaneDataVector &lane_data) const;
 
     // Extract Previous Intersection/Turn Lane Data
     bool findPreviousIntersectionData(const NodeID at,

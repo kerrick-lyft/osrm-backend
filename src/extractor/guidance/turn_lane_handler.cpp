@@ -80,7 +80,6 @@ TurnLaneHandler::~TurnLaneHandler()
 Intersection
 TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Intersection intersection)
 {
-    TurnLaneDescription turn_lane_description;
     LaneDescriptionID lane_description_id;
     LaneDataVector lane_data;
 
@@ -95,7 +94,6 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
                                          via_edge,
                                          intersection,
                                          lane_description_id,
-                                         turn_lane_description,
                                          lane_data,
                                          previous_node,
                                          previous_id,
@@ -139,7 +137,6 @@ TurnLaneHandler::deduceScenario(const NodeID at,
                                 const EdgeID via_edge,
                                 const Intersection &intersection,
                                 LaneDescriptionID &lane_description_id,
-                                TurnLaneDescription &turn_lane_description,
                                 LaneDataVector &lane_data,
                                 NodeID &previous_node,
                                 EdgeID &previous_id,
@@ -151,20 +148,7 @@ TurnLaneHandler::deduceScenario(const NodeID at,
     if (intersection.size() == 1)
         return TurnLaneHandler::NONE;
 
-    const auto &data = node_based_graph.GetEdgeData(via_edge);
-    lane_description_id = data.lane_description_id;
-    // Extract a lane description for the ID
-
-    turn_lane_description =
-        lane_description_id != INVALID_LANE_DESCRIPTIONID
-            ? TurnLaneDescription(turn_lane_masks.begin() + turn_lane_offsets[lane_description_id],
-                                  turn_lane_masks.begin() +
-                                      turn_lane_offsets[lane_description_id + 1])
-            : TurnLaneDescription();
-
-    BOOST_ASSERT(turn_lane_description.empty() ||
-                 turn_lane_description.size() == (turn_lane_offsets[lane_description_id + 1] -
-                                                  turn_lane_offsets[lane_description_id]));
+    extractLaneData(via_edge, lane_description_id, lane_data);
 
     // going straight, due to traffic signals, we can have uncompressed geometry
     if (intersection.size() == 2 &&
@@ -174,15 +158,13 @@ TurnLaneHandler::deduceScenario(const NodeID at,
          angularDeviation(intersection[1].turn.angle, STRAIGHT_ANGLE) < FUZZY_ANGLE_DIFFERENCE))
         return TurnLaneHandler::NONE;
 
-    lane_data = laneDataFromDescription(turn_lane_description);
-
     // if we see an invalid conversion, we stop immediately
-    if (!turn_lane_description.empty() && lane_data.empty())
+    if (lane_description_id != INVALID_LANE_DESCRIPTIONID && lane_data.empty())
         return TurnLaneScenario::INVALID;
 
     // might be reasonable to handle multiple turns, if we know of a sequence of lanes
     // e.g. one direction per lane, if three lanes and right, through, left available
-    if (!turn_lane_description.empty() && lane_data.size() == 1 &&
+    if (lane_description_id != INVALID_LANE_DESCRIPTIONID && lane_data.size() == 1 &&
         lane_data[0].tag == TurnLaneType::none)
         return TurnLaneScenario::INVALID;
 
@@ -243,7 +225,7 @@ TurnLaneHandler::deduceScenario(const NodeID at,
         return TurnLaneScenario::UNKNOWN;
     }
 
-    if (!turn_lane_description.empty())
+    if (lane_description_id != INVALID_LANE_DESCRIPTIONID)
         return TurnLaneScenario::UNKNOWN;
 
     std::cout << "Checking Previous Intersection" << std::endl;
@@ -281,6 +263,28 @@ TurnLaneHandler::deduceScenario(const NodeID at,
     }
 
     return TurnLaneScenario::UNKNOWN;
+}
+
+void TurnLaneHandler::extractLaneData(const EdgeID via_edge,
+                                      LaneDescriptionID &lane_description_id,
+                                      LaneDataVector &lane_data) const
+{
+    const auto &edge_data = node_based_graph.GetEdgeData(via_edge);
+    // TODO access correct data
+    lane_description_id = edge_data.lane_description_id;
+    const auto lane_description =
+        lane_description_id != INVALID_LANE_DESCRIPTIONID
+            ? TurnLaneDescription(turn_lane_masks.begin() + turn_lane_offsets[lane_description_id],
+                                  turn_lane_masks.begin() +
+                                      turn_lane_offsets[lane_description_id + 1])
+            : TurnLaneDescription();
+
+    if (!lane_description.empty())
+        lane_data = laneDataFromDescription(lane_description);
+
+    BOOST_ASSERT(lane_description.empty() ||
+                 lane_description.size() == (turn_lane_offsets[lane_description_id + 1] -
+                                             turn_lane_offsets[lane_description_id]));
 }
 
 bool TurnLaneHandler::findPreviousIntersectionData(const NodeID at,
