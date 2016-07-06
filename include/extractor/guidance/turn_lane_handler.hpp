@@ -44,8 +44,19 @@ class TurnLaneHandler
                   // include turns from other roads in their listings
         NONE,     // not a turn lane scenario at all
         INVALID,  // some error might have occurred
-        UNKNOWN   // UNKNOWN describes all cases that we are currently not able to handle
+        UNKNOWN,  // UNKNOWN describes all cases that we are currently not able to handle
+        NUM_SCENARIOS
     } TurnLaneScenario;
+
+    const constexpr static char *scenario_names[TurnLaneScenario::NUM_SCENARIOS] = {
+        "Simple",
+        "Partition Local",
+        "Simple Previous",
+        "Partition Previous",
+        "Sliproad",
+        "None",
+        "Invalid",
+        "Unknown"};
 
   public:
     typedef std::vector<TurnLaneData> LaneDataVector;

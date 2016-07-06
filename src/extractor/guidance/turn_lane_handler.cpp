@@ -32,6 +32,8 @@ std::size_t getNumberOfTurns(const Intersection &intersection)
 }
 } // namespace
 
+const constexpr char *TurnLaneHandler::scenario_names[TurnLaneScenario::NUM_SCENARIOS];
+
 TurnLaneHandler::TurnLaneHandler(const util::NodeBasedDynamicGraph &node_based_graph,
                                  std::vector<std::uint32_t> &turn_lane_offsets,
                                  std::vector<TurnLaneType::Mask> &turn_lane_masks,
@@ -100,28 +102,32 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
                                          previous_intersection,
                                          previous_lane_data,
                                          previous_description_id);
+
+    if (scenario != TurnLaneScenario::NONE)
+    {
+        std::cout << "[intersection]\n";
+        for (const auto &road : intersection)
+            std::cout << "\t" << toString(road) << "\n";
+        std::cout << "Scenario: " << scenario_names[scenario] << std::endl;
+    }
+
     switch (scenario)
     {
     // cases that all simply return the intersection
     case TurnLaneScenario::NONE: /*no break*/
     case TurnLaneScenario::INVALID:
         return intersection;
-    }
-    const std::size_t possible_entries = getNumberOfTurns(intersection);
 
-    bool is_simple = isSimpleIntersection(lane_data, intersection);
-    // simple intersections can be assigned directly
-    if (is_simple)
-    {
-        (*count_called)++;
+    // A turn based on current lane data
+    case TurnLaneScenario::SIMPLE:
+    case TurnLaneScenario::PARTITION_LOCAL:
         lane_data = handleNoneValueAtSimpleTurn(std::move(lane_data), intersection);
         return simpleMatchTuplesToTurns(std::move(intersection), lane_data, lane_description_id);
     }
-    // if the intersection is not simple but we have lane data, we check for intersections with
-    // middle islands. We have two cases. The first one is providing lane data on the current
-    // segment and we only need to consider the part of the current segment. In this case we
-    // partition the data and only consider the first part.
-    else if (!lane_data.empty())
+
+    const std::size_t possible_entries = getNumberOfTurns(intersection);
+
+    if (!lane_data.empty())
     {
         (*count_called)++;
         if (lane_data.size() >= possible_entries)
@@ -147,7 +153,7 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
     }
     // The second part does not provide lane data on the current segment, but on the segment prior
     // to the turn. We try to partition the data and only consider the second part.
-    else if (turn_lane_description.empty())
+    if (turn_lane_description.empty())
     {
         return handleTurnAtPreviousIntersection(previous_node,
                                                 previous_id,
@@ -240,6 +246,35 @@ TurnLaneHandler::deduceScenario(const NodeID at,
         intersection[0].entry_allowed && !hasTag(TurnLaneType::none, lane_data))
         lane_data.push_back({TurnLaneType::uturn, lane_data.back().to, lane_data.back().to});
 
+    bool is_simple = isSimpleIntersection(lane_data, intersection);
+    if (!lane_data.empty())
+        ++(*count_called);
+
+    if (is_simple)
+        return TurnLaneScenario::SIMPLE;
+
+    // if the intersection is not simple but we have lane data, we check for intersections with
+    // middle islands. We have two cases. The first one is providing lane data on the current
+    // segment and we only need to consider the part of the current segment. In this case we
+    // partition the data and only consider the first part.
+    if (!lane_data.empty())
+    {
+        if (lane_data.size() >= possible_entries)
+        {
+            lane_data = partitionLaneData(node_based_graph.GetTarget(via_edge),
+                                          std::move(lane_data),
+                                          intersection)
+                            .first;
+
+            // check if we were successfull in trimming
+            if (lane_data.size() == possible_entries &&
+                isSimpleIntersection(lane_data, intersection))
+                return TurnLaneScenario::PARTITION_LOCAL;
+        }
+        // If partitioning doesn't solve the problem, we don't know how to handle it right now
+        return TurnLaneScenario::UNKNOWN;
+    }
+
     // acquire the lane data of a previous segment and, if possible, use it for the current
     // intersection.
     findPreviousIntersectionData(at,
@@ -298,7 +333,8 @@ bool TurnLaneHandler::findPreviousIntersectionData(const NodeID at,
     return true;
 }
 
-// At segregated intersections, turn lanes will often only be specified up until the first turn. To
+// At segregated intersections, turn lanes will often only be specified up until the first turn.
+// To
 // actually take the turn, we need to look back to the edge we drove onto the intersection with.
 Intersection
 TurnLaneHandler::handleTurnAtPreviousIntersection(const NodeID previous_node,
@@ -483,8 +519,10 @@ std::pair<LaneDataVector, LaneDataVector> TurnLaneHandler::partitionLaneData(
      * case left) turn lane as if it were to continue straight onto the intersection and
      * look back between (1) and (2) to make sure we find the correct lane for the left-turn.
      *
-     * Intersections like these have two parts. Turns that can be made at the first intersection and
-     * turns that have to be made at the second. The partitioning returns the lane data split into
+     * Intersections like these have two parts. Turns that can be made at the first intersection
+     * and
+     * turns that have to be made at the second. The partitioning returns the lane data split
+     * into
      * two parts, one for the first and one for the second intersection.
      */
 
@@ -502,7 +540,8 @@ std::pair<LaneDataVector, LaneDataVector> TurnLaneHandler::partitionLaneData(
     std::vector<bool> matched_at_first(turn_lane_data.size(), false);
     std::vector<bool> matched_at_second(turn_lane_data.size(), false);
 
-    // find out about the next intersection. To check for valid matches, we also need the turn types
+    // find out about the next intersection. To check for valid matches, we also need the turn
+    // types
     auto next_intersection = turn_analysis.getIntersection(at, straightmost->turn.eid);
     next_intersection =
         turn_analysis.assignTurnTypes(at, straightmost->turn.eid, std::move(next_intersection));
