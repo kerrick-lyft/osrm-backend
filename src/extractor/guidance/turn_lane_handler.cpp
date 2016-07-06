@@ -123,46 +123,13 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
     case TurnLaneScenario::PARTITION_LOCAL:
         lane_data = handleNoneValueAtSimpleTurn(std::move(lane_data), intersection);
         return simpleMatchTuplesToTurns(std::move(intersection), lane_data, lane_description_id);
+    case TurnLaneScenario::SIMPLE_PREVIOUS:
+    case TurnLaneScenario::PARTITION_PREVIOUS:
+        previous_lane_data =
+            handleNoneValueAtSimpleTurn(std::move(previous_lane_data), intersection);
+        return simpleMatchTuplesToTurns(
+            std::move(intersection), previous_lane_data, previous_description_id);
     }
-
-    const std::size_t possible_entries = getNumberOfTurns(intersection);
-
-    if (!lane_data.empty())
-    {
-        (*count_called)++;
-        if (lane_data.size() >= possible_entries)
-        {
-            lane_data = partitionLaneData(node_based_graph.GetTarget(via_edge),
-                                          std::move(lane_data),
-                                          intersection)
-                            .first;
-
-            // check if we were successfull in trimming
-            if (lane_data.size() == possible_entries &&
-                isSimpleIntersection(lane_data, intersection))
-            {
-                lane_data = handleNoneValueAtSimpleTurn(std::move(lane_data), intersection);
-                return simpleMatchTuplesToTurns(
-                    std::move(intersection), lane_data, lane_description_id);
-            }
-        }
-
-        // If the lanes coudln't be matched with the available turns
-        std::cout << "[unhandled case]\n";
-        util::guidance::printTurnAssignmentData(at, lane_data, intersection, node_info_list);
-    }
-    // The second part does not provide lane data on the current segment, but on the segment prior
-    // to the turn. We try to partition the data and only consider the second part.
-    if (turn_lane_description.empty())
-    {
-        return handleTurnAtPreviousIntersection(previous_node,
-                                                previous_id,
-                                                std::move(intersection),
-                                                std::move(previous_intersection),
-                                                std::move(previous_lane_data),
-                                                previous_description_id);
-    }
-
     return std::move(intersection);
 }
 
@@ -272,9 +239,14 @@ TurnLaneHandler::deduceScenario(const NodeID at,
                 return TurnLaneScenario::PARTITION_LOCAL;
         }
         // If partitioning doesn't solve the problem, we don't know how to handle it right now
+        std::cout << "Current Not Empty" << std::endl;
         return TurnLaneScenario::UNKNOWN;
     }
 
+    if (!turn_lane_description.empty())
+        return TurnLaneScenario::UNKNOWN;
+
+    std::cout << "Checking Previous Intersection" << std::endl;
     // acquire the lane data of a previous segment and, if possible, use it for the current
     // intersection.
     findPreviousIntersectionData(at,
@@ -285,6 +257,28 @@ TurnLaneHandler::deduceScenario(const NodeID at,
                                  previous_intersection,
                                  previous_lane_data,
                                  previous_description_id);
+
+    if (previous_lane_data.empty())
+        return TurnLaneScenario::NONE;
+
+    const auto is_simple_previous = isSimpleIntersection(previous_lane_data, intersection);
+    if (is_simple_previous)
+        return TurnLaneScenario::SIMPLE_PREVIOUS;
+
+    if (previous_lane_data.size() >= possible_entries && previous_intersection.size() != 2)
+    {
+        previous_lane_data = partitionLaneData(node_based_graph.GetTarget(previous_id),
+                                               std::move(previous_lane_data),
+                                               previous_intersection)
+                                 .second;
+
+        std::sort(previous_lane_data.begin(), previous_lane_data.end());
+
+        // check if we were successfull in trimming
+        if ((previous_lane_data.size() == possible_entries) &&
+            isSimpleIntersection(previous_lane_data, intersection))
+            return TurnLaneScenario::PARTITION_PREVIOUS;
+    }
 
     return TurnLaneScenario::UNKNOWN;
 }
@@ -331,57 +325,6 @@ bool TurnLaneHandler::findPreviousIntersectionData(const NodeID at,
         previous_lane_data = laneDataFromDescription(previous_description);
     }
     return true;
-}
-
-// At segregated intersections, turn lanes will often only be specified up until the first turn.
-// To
-// actually take the turn, we need to look back to the edge we drove onto the intersection with.
-Intersection
-TurnLaneHandler::handleTurnAtPreviousIntersection(const NodeID previous_node,
-                                                  const EdgeID previous_id,
-                                                  Intersection intersection,
-                                                  Intersection previous_intersection,
-                                                  LaneDataVector previous_lane_data,
-                                                  const LaneDescriptionID previous_description_id)
-{
-    // stop on invalid lane data conversion
-    if (previous_lane_data.empty())
-        return intersection;
-
-    (*count_called)++;
-
-    const auto is_simple = isSimpleIntersection(previous_lane_data, intersection);
-    if (is_simple)
-    {
-        previous_lane_data =
-            handleNoneValueAtSimpleTurn(std::move(previous_lane_data), intersection);
-        return simpleMatchTuplesToTurns(
-            std::move(intersection), previous_lane_data, previous_description_id);
-    }
-    else
-    {
-        if (previous_lane_data.size() >= getNumberOfTurns(intersection) &&
-            previous_intersection.size() != 2)
-        {
-            previous_lane_data = partitionLaneData(node_based_graph.GetTarget(previous_id),
-                                                   std::move(previous_lane_data),
-                                                   previous_intersection)
-                                     .second;
-
-            std::sort(previous_lane_data.begin(), previous_lane_data.end());
-
-            // check if we were successfull in trimming
-            if (previous_lane_data.size() == getNumberOfTurns(intersection) &&
-                isSimpleIntersection(previous_lane_data, intersection))
-            {
-                previous_lane_data =
-                    handleNoneValueAtSimpleTurn(std::move(previous_lane_data), intersection);
-                return simpleMatchTuplesToTurns(
-                    std::move(intersection), previous_lane_data, previous_description_id);
-            }
-        }
-    }
-    return intersection;
 }
 
 /* A simple intersection does not depend on the next intersection coming up. This is important

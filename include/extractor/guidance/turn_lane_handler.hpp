@@ -113,15 +113,6 @@ class TurnLaneHandler
     std::pair<TurnLaneHandler::LaneDataVector, TurnLaneHandler::LaneDataVector> partitionLaneData(
         const NodeID at, LaneDataVector turn_lane_data, const Intersection &intersection) const;
 
-    // if the current intersections turn string is empty, we check whether there is an incoming
-    // intersection whose turns might be related to this current intersection
-    Intersection handleTurnAtPreviousIntersection(const NodeID previous_node,
-                                                  const EdgeID previous_id,
-                                                  Intersection intersection,
-                                                  Intersection previous_intersection,
-                                                  LaneDataVector previous_lane_data,
-                                                  const LaneDescriptionID previous_description_id);
-
     // Sliproad turns have a separated lane to the right/left of other depicted lanes. These lanes
     // are not necessarily separated clearly from the rest of the way. As a result, we combine both
     // lane entries for our output, while performing the matching with the separated lanes only.
