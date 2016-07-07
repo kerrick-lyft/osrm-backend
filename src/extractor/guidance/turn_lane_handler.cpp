@@ -200,11 +200,14 @@ TurnLaneHandler::deduceScenario(const NodeID at,
                                  previous_via_edge,
                                  previous_intersection))
     {
+        std::cout << "Found Previous Intersection" << std::endl;
         for (const auto &road : previous_intersection)
         {
-            if (road.turn.instruction.type == TurnType::Sliproad && road.turn.eid == via_edge)
+            std::cout << "\t" << toString(road) << std::endl;
+            if (road.turn.instruction.type == TurnType::Sliproad)
             {
                 std::cout << "Found sliproad at previous" << std::endl;
+                util::guidance::printTurnAssignmentData(at,lane_data,intersection,node_info_list);
                 return TurnLaneScenario::SLIPROAD;
             }
         }
