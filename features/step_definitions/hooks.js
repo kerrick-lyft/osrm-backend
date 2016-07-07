@@ -15,7 +15,7 @@ module.exports = function () {
         this.setOrigin(this.DEFAULT_ORIGIN);
         callback();
     });
-
+/*
     this.Before('@ignore-platform-windows', () => {
         this.skipThisScenario();
     });
@@ -27,4 +27,5 @@ module.exports = function () {
     this.Before('@ignore-platform-mac', () => {
         this.skipThisScenario();
     });
+ */
 };

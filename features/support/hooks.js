@@ -34,8 +34,10 @@ module.exports = function () {
         });
     });
 
+/*
     this.Around('@stress', (scenario, callback) => {
         // TODO implement stress timeout? Around support is being dropped in cucumber-js anyway
         callback();
     });
+*/
 };
