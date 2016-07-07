@@ -156,6 +156,11 @@ TurnLaneHandler::deduceScenario(const NodeID at,
     if (intersection.size() == 1)
         return TurnLaneHandler::NONE;
 
+    // Sliproads are handled using the previous intersection mechanig
+    for (const auto &road : intersection)
+        if (road.turn.instruction.type == TurnType::Sliproad)
+            return TurnLaneHandler::NONE;
+
     extractLaneData(via_edge, lane_description_id, lane_data);
 
     // traffic lights are not compressed during our preprocessing. Due to this *shortcoming*, we can
