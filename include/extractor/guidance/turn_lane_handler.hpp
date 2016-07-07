@@ -120,7 +120,7 @@ class TurnLaneHandler
                                     LaneDataVector lane_data,
                                     const Intersection &previous_intersection,
                                     const LaneDescriptionID &previous_lane_description_id,
-                                    const LaneDataVector &previous_lane_data) const;
+                                    const LaneDataVector &previous_lane_data);
 
     // get the lane data for an intersection
     void extractLaneData(const EdgeID via_edge,

@@ -631,7 +631,7 @@ TurnLaneHandler::handleSliproadTurn(Intersection intersection,
                                     LaneDataVector lane_data,
                                     const Intersection &previous_intersection,
                                     const LaneDescriptionID &previous_lane_description_id,
-                                    const LaneDataVector &previous_lane_data) const
+                                    const LaneDataVector &previous_lane_data)
 {
     if (isSubsetOf(lane_data, previous_lane_data) && isSimpleIntersection(lane_data, intersection))
     {
@@ -644,11 +644,64 @@ TurnLaneHandler::handleSliproadTurn(Intersection intersection,
             entry.from = match->from;
             entry.to = match->to;
         }
-        return triviallyMatchLanesToTurns(std::move(intersection),
-                                          lane_data,
-                                          node_based_graph,
-                                          previous_lane_description_id,
-                                          id_map);
+        return simpleMatchTuplesToTurns(std::move(intersection),lane_data,previous_lane_description_id);
+    }
+    else if (previous_lane_description_id == INVALID_LANE_DESCRIPTIONID &&
+             isSimpleIntersection(lane_data, intersection))
+    {
+        std::cout << "Combination Scenario Found" << std::endl;
+        // check if we can combine lanes
+        LaneID lane_shift = 0;
+        TurnLaneDescription combined_description;
+        for (auto rev_road_itr = previous_intersection.rbegin();
+             rev_road_itr != previous_intersection.rend();
+             rev_road_itr = std::next(rev_road_itr))
+        {
+            const auto &previous_road = *rev_road_itr;
+
+            if (!previous_road.entry_allowed)
+                continue;
+
+            const auto &edge_data = node_based_graph.GetEdgeData(previous_road.turn.eid);
+            const auto lane_description_id = edge_data.lane_description_id;
+            if (lane_description_id == INVALID_LANE_DESCRIPTIONID)
+            {
+                std::cout << "Failed to find a lane_id on an outgoing road" << std::endl;
+                // TODO here we might want to get back to a normal scenario?
+                // if not all turns offer lanes, we cannot handle the situation
+                return intersection;
+            }
+            // add data to combined description
+            combined_description.insert(
+                combined_description.end(),
+                turn_lane_masks.begin() + turn_lane_offsets[lane_description_id],
+                turn_lane_masks.begin() + turn_lane_offsets[lane_description_id + 1]);
+        }
+        auto combined_data = laneDataFromDescription(combined_description);
+        for (auto &entry : lane_data)
+        {
+            const auto match = findTag(entry.tag, combined_data);
+            BOOST_ASSERT(match != combined_data.end());
+            entry.from = match->from;
+            entry.to = match->to;
+        }
+
+        const auto combined_id = [&]() {
+            auto itr = lane_description_map.find(combined_description);
+            if (lane_description_map.find(combined_description) == lane_description_map.end())
+            {
+                const auto new_id =
+                    boost::numeric_cast<LaneDescriptionID>(lane_description_map.size());
+                lane_description_map[combined_description] = new_id;
+                return new_id;
+            }
+            else
+            {
+                return itr->second;
+            }
+        }();
+        std::cout << "Assigning new turns" << std::endl;
+        return simpleMatchTuplesToTurns(std::move(intersection),lane_data,combined_id);
     }
     return intersection;
 }
