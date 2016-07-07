@@ -130,7 +130,7 @@ TurnLaneHandler::assignTurnLanes(const NodeID at, const EdgeID via_edge, Interse
     case TurnLaneScenario::SLIPROAD:
         return handleSliproadTurn(std::move(intersection),
                                   lane_description_id,
-                                  lane_data,
+                                  std::move(lane_data),
                                   previous_intersection,
                                   previous_description_id,
                                   previous_lane_data);
@@ -200,6 +200,7 @@ TurnLaneHandler::deduceScenario(const NodeID at,
                                  previous_via_edge,
                                  previous_intersection))
     {
+        extractLaneData(previous_via_edge, previous_description_id, previous_lane_data);
         std::cout << "Found Previous Intersection" << std::endl;
         for (const auto &road : previous_intersection)
         {
@@ -207,7 +208,8 @@ TurnLaneHandler::deduceScenario(const NodeID at,
             if (road.turn.instruction.type == TurnType::Sliproad)
             {
                 std::cout << "Found sliproad at previous" << std::endl;
-                util::guidance::printTurnAssignmentData(at,lane_data,intersection,node_info_list);
+                util::guidance::printTurnAssignmentData(
+                    at, lane_data, intersection, node_info_list);
                 return TurnLaneScenario::SLIPROAD;
             }
         }
@@ -287,9 +289,7 @@ TurnLaneHandler::deduceScenario(const NodeID at,
 
     // acquire the lane data of a previous segment and, if possible, use it for the current
     // intersection.
-    if (previous_via_edge != SPECIAL_EDGEID)
-        extractLaneData(previous_via_edge, previous_description_id, previous_lane_data);
-    else
+    if (previous_via_edge == SPECIAL_EDGEID)
         return TurnLaneScenario::NONE;
 
     if (previous_lane_data.empty())
@@ -623,11 +623,28 @@ Intersection TurnLaneHandler::simpleMatchTuplesToTurns(Intersection intersection
 Intersection
 TurnLaneHandler::handleSliproadTurn(Intersection intersection,
                                     const LaneDescriptionID lane_description_id,
-                                    const LaneDataVector &lane_data,
+                                    LaneDataVector lane_data,
                                     const Intersection &previous_intersection,
                                     const LaneDescriptionID &previous_lane_description_id,
                                     const LaneDataVector &previous_lane_data) const
 {
+    if (isSubsetOf(lane_data, previous_lane_data) && isSimpleIntersection(lane_data, intersection))
+    {
+        // Adjust lane_data to represent the turn lanes at the previous intersection
+        std::cout << "Subset Case Reached" << std::endl;
+        for (auto &entry : lane_data)
+        {
+            const auto match = findTag(entry.tag, previous_lane_data);
+            BOOST_ASSERT(match != previous_lane_data.end());
+            entry.from = match->from;
+            entry.to = match->to;
+        }
+        return triviallyMatchLanesToTurns(std::move(intersection),
+                                          lane_data,
+                                          node_based_graph,
+                                          previous_lane_description_id,
+                                          id_map);
+    }
     return intersection;
 }
 

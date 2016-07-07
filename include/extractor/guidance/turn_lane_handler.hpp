@@ -117,7 +117,7 @@ class TurnLaneHandler
     // lane entries for our output, while performing the matching with the separated lanes only.
     Intersection handleSliproadTurn(Intersection intersection,
                                     const LaneDescriptionID lane_description_id,
-                                    const LaneDataVector &lane_data,
+                                    LaneDataVector lane_data,
                                     const Intersection &previous_intersection,
                                     const LaneDescriptionID &previous_lane_description_id,
                                     const LaneDataVector &previous_lane_data) const;
